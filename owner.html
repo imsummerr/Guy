@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#fbf6f1">
+  <title>สรุปยอดขาย</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Mitr:wght@400;500&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="assets/style.css">
+  <script src="config.js"></script>
+  <script src="assets/report.js"></script>
+  <script src="assets/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <div class="logo">📊</div>
+      <div>
+        <h1 data-shop>ร้านขนม</h1>
+        <div class="sub">สรุปยอดขาย · เจ้าของร้าน</div>
+      </div>
+      <div class="right"><button class="link-btn" id="logout" hidden onclick="logout()">ออก</button></div>
+    </div>
+  </header>
+
+  <main class="wrap" id="app"><div class="loading">กำลังโหลด…</div></main>
+
+<script>
+const { call, store, toast, esc, thDate, DEMO } = App;
+const D = Report.date, fmt = Report.fmt;
+const S = { date: D.today(), pin: store.get('owner-pin', ''), period: store.get('owner-period', 'week'), days: [] };
+const app = document.getElementById('app');
+const baht = n => fmt(n) + ' ฿';
+
+function showLogin(msg) {
+  document.getElementById('logout').hidden = true;
+  app.innerHTML = `<div class="login card">
+    <div style="font-size:40px">🔒</div>
+    <h2>สำหรับเจ้าของร้าน</h2>
+    <div class="muted">ใส่รหัสเพื่อดูยอดขาย${DEMO ? ' (โหมดทดลอง: 1234)' : ''}</div>
+    <input id="pin" type="password" inputmode="numeric" autocomplete="current-password">
+    ${msg ? `<div class="note bad">${esc(msg)}</div>` : ''}
+    <button class="btn" id="go">เข้าสู่ระบบ</button></div>`;
+  const inp = document.getElementById('pin'), go = document.getElementById('go');
+  const submit = async () => {
+    go.disabled = true;
+    try {
+      await call('login', { pin: inp.value.trim() });
+      S.pin = inp.value.trim(); store.set('owner-pin', S.pin); load();
+    } catch (e) { showLogin(e.message); }
+  };
+  go.onclick = submit;
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') submit(); });
+  inp.focus();
+}
+function logout() { store.del('owner-pin'); S.pin = ''; showLogin(); }
+
+async function load() {
+  if (!S.pin) return showLogin();
+  document.getElementById('logout').hidden = false;
+  const ws = D.weekStart(S.date), we = D.addDays(ws, 6);
+  const ms = D.monthStart(S.date), me = D.monthEnd(S.date);
+  const from = ws < ms ? ws : ms, to = we > me ? we : me;
+  app.innerHTML = shell('<div class="loading">กำลังโหลด…</div>');
+  bindDate();
+  try {
+    const rep = await call('report', { pin: S.pin, from, to });
+    S.days = Report.computeAll(rep);
+    S.range = { ws, we, ms, me };
+    render();
+  } catch (e) {
+    if (/รหัส/.test(e.message)) { store.del('owner-pin'); S.pin = ''; return showLogin(e.message); }
+    app.innerHTML = shell(`<div class="note bad">⚠️ ${esc(e.message)}</div><button class="btn ghost" onclick="load()">ลองใหม่</button>`);
+    bindDate();
+  }
+}
+
+function shell(inner) {
+  return `<div class="card date-row">
+      <label for="date">เลือกวัน</label>
+      <input type="date" id="date" value="${S.date}">
+      ${S.date !== D.today() ? '<button class="link-btn" onclick="pick(D.today())">วันนี้</button>' : ''}
+    </div>${inner}`;
+}
+function bindDate() {
+  const el = document.getElementById('date');
+  el.addEventListener('change', () => el.value && pick(el.value));
+}
+function pick(d) { S.date = d; load(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+
+function render() {
+  const { ws, we, ms, me } = S.range;
+  const isToday = S.date === D.today();
+  const tDay = Report.totals(S.days, S.date, S.date);
+  const tWeek = Report.totals(S.days, ws, we);
+  const tMonth = Report.totals(S.days, ms, me);
+  const day = S.days.find(d => d.date === S.date);
+
+  const stat = (cls, lbl, t, meta) => `<div class="stat ${cls}">
+    <div class="lbl">${lbl}</div><div class="num-big">${baht(t.received)}</div>
+    <div class="meta">${meta} · ${fmt(t.units)} ชิ้น</div>
+    ${t.issues ? `<span class="flag">⚠️ ${t.issues} เรื่อง</span>` : ''}</div>`;
+
+  app.innerHTML = shell(`
+    <div class="stats">
+      ${stat('day', isToday ? 'วันนี้' : 'วันที่เลือก', tDay, thDate(S.date))}
+      ${stat('week', isToday ? 'สัปดาห์นี้' : 'สัปดาห์นั้น', tWeek, `${thDate(ws).replace(/ \d+$/, '')}–${thDate(we).replace(/ \d+$/, '')}`)}
+      ${stat('month', isToday ? 'เดือนนี้' : 'เดือนนั้น', tMonth, thDate(ms).replace(/^\d+ /, ''))}
+    </div>
+    ${alertsCard(ms, me)}
+    ${dayCard(day)}
+    ${periodCard(S.period === 'week' ? tWeek : tMonth)}
+    <div class="muted" style="text-align:center;margin-top:16px">ยอดขาย = เงินสด + เงินโอน + ไทยช่วยไทย + ค่าใช้จ่าย (ที่จ่ายจากเงินสด)</div>`);
+  bindDate();
+}
+
+function alertsCard(from, to) {
+  const list = [];
+  S.days.filter(d => d.date >= from && d.date <= to).forEach(d => d.issues.forEach(i => {
+    if (i.kind === 'missing' && d.date >= D.today()) return;   // วันนี้ยังขายอยู่ ไม่ต้องเตือน
+    list.push({ date: d.date, i });
+  }));
+  if (!list.length) return `<div class="note ok">✅ เดือนนี้ของกับเงินตรงกันทุกวัน</div>`;
+  const ico = { short: '🔻', over: '🔺', carry: '📦', missing: '⏳' };
+  return `<div class="card"><h2>⚠️ ต้องเช็ค (${list.length})</h2>
+    ${list.reverse().map(({ date, i }) => `<div class="alert">
+      <button class="d" onclick="pick('${date}')">${thDate(date)}</button>
+      <div>${ico[i.kind] || '⚠️'} ${esc(i.text)}</div></div>`).join('')}</div>`;
+}
+
+function dayCard(d) {
+  if (!d) return `<div class="card"><h2>📅 ${thDate(S.date, true)}</h2><div class="muted">ยังไม่มีข้อมูลวันนี้</div></div>`;
+  const rows = d.rows.map(r => `<tr><td>${esc(r.item)}</td><td class="r">${r.old}</td><td class="r">${r.add}</td>
+      <td class="r">${r.left ?? '–'}</td><td class="r"><b>${r.sold ?? '–'}</b></td><td class="r">${r.value === null ? '–' : fmt(r.value)}</td></tr>`).join('');
+  const badge = !d.hasAfter ? '<span class="badge wait">ยังไม่ปิดยอด</span>'
+    : d.diff === 0 ? '<span class="badge ok">✓ ตรง</span>'
+    : d.diff < 0 ? `<span class="badge short">ขาด ${fmt(-d.diff)}</span>` : `<span class="badge over">เกิน ${fmt(d.diff)}</span>`;
+  const mrow = (l, v, b) => `<tr${b ? ' class="total"' : ''}><td>${l}</td><td class="r">${v}</td></tr>`;
+  return `<div class="card"><h2>📅 ${thDate(S.date, true)} ${badge}</h2>
+    <div class="table-scroll"><table>
+      <tr><th>รายการ</th><th class="r">เดิม</th><th class="r">เพิ่ม</th><th class="r">เหลือ</th><th class="r">ขาย</th><th class="r">บาท</th></tr>
+      ${rows}
+      <tr class="total"><td>รวม</td><td class="r">${d.rows.reduce((s, r) => s + r.old, 0)}</td><td class="r">${d.rows.reduce((s, r) => s + r.add, 0)}</td>
+        <td class="r">${d.hasAfter ? d.rows.reduce((s, r) => s + r.left, 0) : '–'}</td><td class="r">${d.units}</td><td class="r">${fmt(d.expected)}</td></tr>
+    </table></div>
+    ${d.hasAfter ? `<div style="height:10px"></div><table>
+      ${mrow('💵 เงินสด (ในลิ้นชัก)', baht(d.cash))}
+      ${mrow('📱 เงินโอน', baht(d.transfer))}
+      ${mrow('🇹🇭 ไทยช่วยไทย', baht(d.thai))}
+      ${mrow('🧾 ค่าใช้จ่าย' + (d.expenses.length > 1 ? ` <span class="muted">(${d.expenses.map(fmt).join(' + ')})</span>` : ''), baht(d.expense))}
+      ${mrow('รวมยอดขาย', baht(d.received), true)}
+      ${mrow('ควรได้จากของที่ขายไป', baht(d.expected))}
+      ${mrow('ส่วนต่าง', d.diff === 0 ? '0 ฿' : (d.diff > 0 ? '+' : '−') + baht(Math.abs(d.diff)))}
+    </table>` : ''}
+    ${d.issues.filter(i => i.kind !== 'missing').map(i => `<div class="note ${i.kind === 'over' ? 'warn' : 'bad'}">${esc(i.text)}</div>`).join('')}
+  </div>`;
+}
+
+function periodCard(t) {
+  const seg = (k, l) => `<button class="${S.period === k ? 'on' : ''}" onclick="setPeriod('${k}')">${l}</button>`;
+  const days = S.days.filter(d => d.date >= t.from && d.date <= t.to).slice().reverse();
+  const items = t.byItem.slice().sort((a, b) => b.sold - a.sold);
+  const row = (l, v) => `<tr><td>${l}</td><td class="r">${v}</td></tr>`;
+  return `<div class="card">
+    <div class="seg">${seg('week', 'สัปดาห์')}${seg('month', 'เดือน')}</div>
+    <div style="height:10px"></div>
+    <table>
+      ${row('💵 เงินสด', baht(t.cash))}${row('📱 เงินโอน', baht(t.transfer))}${row('🇹🇭 ไทยช่วยไทย', baht(t.thai))}
+      ${row('🧾 ค่าใช้จ่าย', baht(t.expense))}
+      <tr class="total"><td>รวมยอดขาย</td><td class="r">${baht(t.received)}</td></tr>
+      ${row('ควรได้จากของที่ขายไป', baht(t.expected))}
+      ${row('ส่วนต่างรวม', t.diff === 0 ? '0 ฿' : (t.diff > 0 ? '+' : '−') + baht(Math.abs(t.diff)))}
+    </table>
+    ${items.length ? `<h3 style="font-size:15px;margin:16px 0 4px">ขายไปแต่ละอย่าง</h3><table>
+      ${items.map(i => `<tr><td>${esc(i.item)}</td><td class="r">${i.sold} ชิ้น</td><td class="r">${fmt(i.value)} ฿</td></tr>`).join('')}</table>` : ''}
+    <h3 style="font-size:15px;margin:16px 0 4px">รายวัน</h3>
+    ${days.length ? `<table>${days.map(d => `<tr style="cursor:pointer" onclick="pick('${d.date}')">
+        <td>${thDate(d.date, true)}</td><td class="r">${d.hasAfter ? baht(d.received) : '–'}</td>
+        <td class="r">${!d.hasAfter ? '<span class="badge wait">รอ</span>' : d.diff === 0 ? '<span class="badge ok">ตรง</span>'
+          : d.diff < 0 ? `<span class="badge short">ขาด ${fmt(-d.diff)}</span>` : `<span class="badge over">เกิน ${fmt(d.diff)}</span>`}
+          ${d.issues.some(i => i.kind === 'carry') ? ' <span class="badge short">📦</span>' : ''}</td></tr>`).join('')}</table>`
+      : '<div class="muted">ยังไม่มีข้อมูล</div>'}
+  </div>`;
+}
+function setPeriod(p) { S.period = p; store.set('owner-period', p); render(); }
+
+load();
+</script>
+</body>
+</html>

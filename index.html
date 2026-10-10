@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="robots" content="noindex,nofollow">
+  <meta name="theme-color" content="#fbf6f1">
+  <title>กรอกสต็อกขนม</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Mitr:wght@400;500&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+  <link rel="stylesheet" href="assets/style.css">
+  <script src="config.js"></script>
+  <script src="assets/report.js"></script>
+  <script src="assets/app.js"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <div class="logo">🍡</div>
+      <div>
+        <h1 data-shop>ร้านขนม</h1>
+        <div class="sub">กรอกสต็อก · พนักงาน</div>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <div class="card date-row">
+      <label for="date">วันที่</label>
+      <input type="date" id="date">
+    </div>
+
+    <div class="tabs">
+      <button class="tab" data-tab="before">☀️ ก่อนขาย <span class="done" id="done-before"></span></button>
+      <button class="tab after" data-tab="after">🌙 หลังขาย <span class="done" id="done-after"></span></button>
+    </div>
+
+    <div id="view"><div class="loading">กำลังโหลด…</div></div>
+  </main>
+
+<script>
+const { call, store, toast, esc, thDate } = App;
+const D = Report.date;
+const S = { date: D.today(), tab: null, data: null, items: [], busy: false };
+const dateEl = document.getElementById('date');
+const view = document.getElementById('view');
+
+const pin = () => store.get('staff-pin', '');
+const draftKey = () => `draft:${S.date}:${S.tab}`;
+
+async function api(action, body) {
+  try {
+    return await call(action, Object.assign({ pin: pin() }, body));
+  } catch (e) {
+    if (/รหัสพนักงาน/.test(e.message)) {
+      const p = prompt('ใส่รหัสพนักงาน');
+      if (p !== null) { store.set('staff-pin', p.trim()); return api(action, body); }
+    }
+    throw e;
+  }
+}
+
+async function load() {
+  view.innerHTML = '<div class="loading">กำลังโหลด…</div>';
+  try {
+    S.data = await api('day', { date: S.date });
+    S.items = S.data.items;
+    if (!S.tab) S.tab = S.data.before && !S.data.after ? 'after' : 'before';
+    render();
+  } catch (e) {
+    view.innerHTML = `<div class="note bad">⚠️ ${esc(e.message)}</div>
+      <button class="btn ghost" onclick="load()">ลองใหม่</button>`;
+  }
+}
+
+function render() {
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('on', b.dataset.tab === S.tab));
+  document.getElementById('done-before').textContent = S.data.before ? '✓' : '';
+  document.getElementById('done-after').textContent = S.data.after ? '✓' : '';
+  view.innerHTML = S.tab === 'before' ? viewBefore() : viewAfter();
+  restoreDraft();
+  bindInputs();
+}
+
+const dot = it => `<span class="dot" style="background:${esc(it.color || '#eee')}"></span>`;
+const numInput = (name, val, mode) =>
+  `<input class="num" name="${esc(name)}" inputmode="${mode || 'numeric'}" autocomplete="off" value="${val ?? ''}">`;
+
+function viewBefore() {
+  const b = S.data.before, sug = S.data.suggestOld;
+  const note = b ? `<div class="note ok">✅ กรอกก่อนขายของวันนี้แล้ว — แก้ไขแล้วกดบันทึกใหม่ได้</div>`
+    : sug ? `<div class="note info">ของเดิมใส่ให้จากคงเหลือวันที่ ${thDate(S.data.suggestFrom)} — ถ้านับแล้วไม่ตรง แก้ได้เลย</div>`
+    : `<div class="note info">นับของที่มีอยู่ (ของเดิม) และของที่เอามาเพิ่มวันนี้</div>`;
+  const rows = S.items.map(it => {
+    const old = b ? b[it.name]?.old : sug ? (sug[it.name] ?? '') : '';
+    const add = b ? b[it.name]?.add : '';
+    return `<div class="item">${dot(it)}
+      <div class="name"><b>${esc(it.name)}</b><small>${it.price} บาท</small></div>
+      <div class="fields">
+        <label class="field"><span>ของเดิม</span>${numInput('old:' + it.name, old)}</label>
+        <label class="field"><span>เพิ่ม</span>${numInput('add:' + it.name, add)}</label>
+      </div></div>`;
+  }).join('');
+  return `${note}<div class="card">${rows}</div>
+    <div class="card"><div class="money-row"><label>รวมของที่มีวันนี้</label><b id="sum-before">0 ชิ้น</b></div></div>
+    <button class="btn" id="save" onclick="saveBefore()">บันทึกก่อนขาย</button>`;
+}
+
+function viewAfter() {
+  const b = S.data.before, a = S.data.after;
+  if (!b) return `<div class="note warn">ยังไม่ได้กรอก <b>ก่อนขาย</b> ของวันที่ ${thDate(S.date)} — กรอกก่อนขายก่อนนะ</div>
+    <button class="btn ghost" onclick="switchTab('before')">ไปหน้าก่อนขาย</button>`;
+  const rows = S.items.map(it => {
+    const has = (b[it.name]?.old || 0) + (b[it.name]?.add || 0);
+    return `<div class="item">${dot(it)}
+      <div class="name"><b>${esc(it.name)}</b><small>มี ${has} ชิ้น</small></div>
+      <div class="fields"><label class="field"><span>คงเหลือ</span>${numInput('left:' + it.name, a ? a.rows[it.name] : '')}</label></div>
+      </div>`;
+  }).join('');
+  const exps = a && a.expenses && a.expenses.length ? a.expenses : [''];
+  return `${a ? '<div class="note ok">✅ กรอกหลังขายของวันนี้แล้ว — แก้ไขแล้วกดบันทึกใหม่ได้</div>' : ''}
+    <div class="card"><h2>📦 ของคงเหลือ</h2>${rows}</div>
+    <div class="card"><h2>💰 เงินที่ได้</h2>
+      ${moneyRow('cash', '💵', 'เงินสด', 'นับในลิ้นชัก หลังจ่ายค่าใช้จ่ายแล้ว', a && a.cash)}
+      ${moneyRow('transfer', '📱', 'เงินโอน', '', a && a.transfer)}
+      ${moneyRow('thai', '🇹🇭', 'ไทยช่วยไทย', '', a && a.thai)}
+    </div>
+    <div class="card"><h2>🧾 ค่าใช้จ่าย <span class="muted">(จ่ายจากเงินสด)</span></h2>
+      <div id="exps">${exps.map(expRow).join('')}</div>
+      <button class="link-btn" onclick="addExp()">＋ เพิ่มค่าใช้จ่าย</button>
+      <div class="muted">ไม่มีค่าใช้จ่ายก็เว้นว่างได้</div>
+    </div>
+    <button class="btn mint" id="save" onclick="saveAfter()">บันทึกหลังขาย</button>`;
+}
+
+function moneyRow(key, ico, label, hint, val) {
+  return `<div class="money-row"><span class="chip ${key}">${ico}</span>
+    <label for="m-${key}">${label}${hint ? `<small>${hint}</small>` : ''}</label>
+    <input class="money" id="m-${key}" name="m:${key}" inputmode="decimal" autocomplete="off" placeholder="0" value="${val ?? ''}"></div>`;
+}
+function expRow(v) {
+  return `<div class="money-row"><span class="chip exp">🧾</span><label>จำนวนเงิน</label>
+    <input class="money" name="exp" inputmode="decimal" autocomplete="off" placeholder="0" value="${v ?? ''}">
+    <button class="x" title="ลบ" onclick="this.parentNode.remove(); saveDraft()">✕</button></div>`;
+}
+function addExp() {
+  document.getElementById('exps').insertAdjacentHTML('beforeend', expRow(''));
+  const ins = document.querySelectorAll('#exps .money');
+  bindInputs(); ins[ins.length - 1].focus();
+}
+
+/* ── ช่องกรอก ── */
+function bindInputs() {
+  view.querySelectorAll('input').forEach(el => {
+    if (el._bound) return; el._bound = true;
+    el.addEventListener('focus', () => el.select());
+    el.addEventListener('input', () => {
+      const dec = el.inputMode === 'decimal';
+      el.value = el.value.replace(dec ? /[^\d.]/g : /\D/g, '');
+      el.classList.remove('bad');
+      saveDraft(); updateSums();
+    });
+    el.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      const all = [...view.querySelectorAll('input')], i = all.indexOf(el);
+      if (all[i + 1]) { e.preventDefault(); all[i + 1].focus(); }
+    });
+  });
+  updateSums();
+}
+function updateSums() {
+  const el = document.getElementById('sum-before');
+  if (el) {
+    let t = 0; view.querySelectorAll('.num').forEach(i => { t += Number(i.value || 0); });
+    el.textContent = t + ' ชิ้น';
+  }
+  if (S.tab === 'after' && S.data.before) {
+    S.items.forEach(it => {
+      const i = view.querySelector(`[name="left:${CSS.escape(it.name)}"]`);
+      const b = S.data.before[it.name] || {};
+      if (i && i.value !== '' && Number(i.value) > (b.old || 0) + (b.add || 0)) i.classList.add('bad');
+    });
+  }
+}
+function collect() {
+  const o = {};
+  view.querySelectorAll('input[name]').forEach(i => {
+    if (i.name === 'exp') (o.exp = o.exp || []).push(i.value);
+    else o[i.name] = i.value;
+  });
+  return o;
+}
+function saveDraft() { store.set(draftKey(), collect()); }
+function restoreDraft() {
+  const d = store.get(draftKey(), null);
+  if (!d) return;
+  if (d.exp && document.getElementById('exps')) {
+    document.getElementById('exps').innerHTML = (d.exp.length ? d.exp : ['']).map(expRow).join('');
+  }
+  Object.entries(d).forEach(([k, v]) => {
+    if (k === 'exp') return;
+    const i = view.querySelector(`[name="${CSS.escape(k)}"]`);
+    if (i) i.value = v;
+  });
+}
+
+/* ── บันทึก ── */
+function firstEmpty(names) {
+  for (const n of names) {
+    const i = view.querySelector(`[name="${CSS.escape(n)}"]`);
+    if (i && i.value.trim() === '') { i.classList.add('bad'); i.focus(); return true; }
+  }
+  return false;
+}
+async function submit(action, body, okMsg) {
+  if (S.busy) return;
+  S.busy = true;
+  const btn = document.getElementById('save');
+  btn.disabled = true; btn.textContent = 'กำลังบันทึก…';
+  try {
+    await api(action, Object.assign({ date: S.date }, body));
+    store.del(draftKey());
+    toast(okMsg, 'ok');
+    S.busy = false;
+    if (action === 'saveBefore') S.tab = 'after';
+    await load();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (e) {
+    S.busy = false;
+    toast('⚠️ ' + e.message, 'bad');
+    btn.disabled = false; btn.textContent = action === 'saveBefore' ? 'บันทึกก่อนขาย' : 'บันทึกหลังขาย';
+  }
+}
+function saveBefore() {
+  const names = S.items.flatMap(it => ['old:' + it.name, 'add:' + it.name]);
+  if (firstEmpty(names)) return toast('กรอกให้ครบทุกช่อง (ไม่มีใส่ 0)', 'bad');
+  const v = collect();
+  submit('saveBefore', { rows: S.items.map(it => ({ item: it.name, old: +v['old:' + it.name], add: +v['add:' + it.name] })) },
+         '✅ บันทึกก่อนขายแล้ว');
+}
+function saveAfter() {
+  const names = S.items.map(it => 'left:' + it.name).concat(['m:cash', 'm:transfer', 'm:thai']);
+  if (firstEmpty(names)) return toast('กรอกให้ครบทุกช่อง (ไม่มีใส่ 0)', 'bad');
+  if (view.querySelector('.num.bad')) return toast('คงเหลือมากกว่าของที่มี — เช็คอีกครั้ง', 'bad');
+  const v = collect();
+  const exp = (v.exp || []).map(Number).filter(n => n > 0);
+  const msg = `ยืนยันบันทึกหลังขาย ${thDate(S.date)}\n\nเงินสด ${+v['m:cash']} · เงินโอน ${+v['m:transfer']} · ไทยช่วยไทย ${+v['m:thai']}`
+    + (exp.length ? `\nค่าใช้จ่าย ${exp.reduce((a, b) => a + b, 0)} บาท` : '\nไม่มีค่าใช้จ่าย');
+  if (!confirm(msg)) return;
+  submit('saveAfter', {
+    rows: S.items.map(it => ({ item: it.name, left: +v['left:' + it.name] })),
+    cash: +v['m:cash'], transfer: +v['m:transfer'], thai: +v['m:thai'], expenses: exp
+  }, '✅ บันทึกหลังขายแล้ว ขอบคุณนะ');
+}
+
+function switchTab(t) { S.tab = t; render(); }
+document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => S.data && switchTab(b.dataset.tab)));
+dateEl.value = S.date;
+dateEl.addEventListener('change', () => { if (!dateEl.value) return; S.date = dateEl.value; S.tab = null; load(); });
+load();
+</script>
+</body>
+</html>
