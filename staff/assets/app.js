@@ -1,4 +1,4 @@
-/* ส่วนที่ใช้ร่วมกันทั้งหน้าพนักงานและหน้าเจ้าของร้าน — เรียกหลังบ้าน + เก็บค่าในเครื่อง */
+/* เว็บพนักงาน — เรียกหลังบ้าน + เก็บค่าในเครื่อง */
 (function () {
   'use strict';
   const CFG = window.APP_CONFIG || {};
@@ -26,7 +26,7 @@
     return j;
   }
 
-  /* ── โหมดทดลอง: ทำงานเหมือน Code.gs แต่เก็บใน localStorage ── */
+  /* ── โหมดทดลอง: ทำงานเหมือน Code.gs แต่เก็บใน localStorage (คีย์ demo-db ใช้ร่วมกับเว็บเจ้าของร้าน) ── */
   const Demo = (() => {
     const ITEMS = [
       { name: 'ไดฟุกุ ครีมนม',       price: 10, color: '#f3e3c3' },
@@ -61,7 +61,6 @@
       const d = db();
       switch (req.action) {
         case 'items': return { ok: true, items: ITEMS };
-        case 'login': if (String(req.pin) !== '1234') throw new Error('รหัสไม่ถูกต้อง (โหมดทดลองใช้ 1234)'); return { ok: true };
         case 'day': {
           const day = d[req.date], prev = lastLeft(d, req.date);
           let before = null, after = null;
@@ -103,14 +102,6 @@
                         expense: expenses.reduce((a, b) => a + b, 0), expenses };
           save(d); return { ok: true };
         }
-        case 'report': {
-          if (String(req.pin) !== '1234') throw new Error('รหัสไม่ถูกต้อง');
-          const days = Object.keys(d).filter(k => k >= req.from && k <= req.to).sort().map(k => ({
-            date: k, money: d[k].money,
-            stock: Object.entries(d[k].stock).map(([item, s]) => Object.assign({ item }, s))
-          }));
-          return { ok: true, items: ITEMS, from: req.from, to: req.to, days, prevLeft: lastLeft(d, req.from) };
-        }
       }
       throw new Error('ไม่รู้จักคำสั่ง');
     }
@@ -128,12 +119,12 @@
   }
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
-  const TH_DAYS = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสฯ', 'ศุกร์', 'เสาร์'];
-  function thDate(k, withDay) {
+  function thDate(k) {
     const [y, m, d] = k.split('-').map(Number);
-    const dow = new Date(y, m - 1, d).getDay();
-    return (withDay ? TH_DAYS[dow] + ' ' : '') + `${d} ${TH_MONTHS[m - 1]} ${String(y + 543).slice(2)}`;
+    return `${d} ${TH_MONTHS[m - 1]} ${String(y + 543).slice(2)}`;
   }
+  const pad = n => String(n).padStart(2, '0');
+  const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 
   document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('[data-shop]').forEach(el => { el.textContent = CFG.SHOP_NAME || 'ร้านขนม'; });
@@ -145,5 +136,5 @@
     }
   });
 
-  window.App = { call, store, toast, esc, thDate, DEMO };
+  window.App = { call, store, toast, esc, thDate, today, DEMO };
 })();

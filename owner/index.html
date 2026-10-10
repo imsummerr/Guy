@@ -6,6 +6,7 @@
   <meta name="robots" content="noindex,nofollow">
   <meta name="theme-color" content="#fbf6f1">
   <title>สรุปยอดขาย</title>
+  <meta name="apple-mobile-web-app-title" content="ยอดขาย">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Mitr:wght@400;500&family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
   <link rel="stylesheet" href="assets/style.css">
@@ -28,7 +29,7 @@
   <main class="wrap" id="app"><div class="loading">กำลังโหลด…</div></main>
 
 <script>
-const { call, store, toast, esc, thDate, DEMO } = App;
+const { call, store, esc, thDate, DEMO } = App;
 const D = Report.date, fmt = Report.fmt;
 const S = { date: D.today(), pin: store.get('owner-pin', ''), period: store.get('owner-period', 'week'), days: [] };
 const app = document.getElementById('app');

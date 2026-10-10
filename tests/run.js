@@ -1,11 +1,11 @@
 /* เทสต์ในเครื่อง:  node tests/run.js
- * จำลอง Google Apps Script (ชีตเป็น array) แล้วเรียก Code.gs จริง + เช็คการคำนวณสรุปใน assets/report.js */
+ * จำลอง Google Apps Script (ชีตเป็น array) แล้วเรียก Code.gs จริง + เช็คการคำนวณสรุปใน owner/assets/report.js */
 process.env.TZ = 'Asia/Bangkok';
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 const assert = require('assert');
-const Report = require('../assets/report.js');
+const Report = require('../owner/assets/report.js');
 
 let pass = 0, fail = 0;
 function t(name, fn) {
