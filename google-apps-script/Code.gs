@@ -237,12 +237,13 @@ function saveBefore_(req) {
     var old = count_(m[it.name].old, 'ของเดิม ' + it.name);
     var add = count_(m[it.name].add, 'เพิ่ม ' + it.name);
     var ex = existing[it.name];
+    var price = ex && ex['ราคา'] !== '' ? Number(ex['ราคา']) : it.price;   // ราคาที่บันทึกไว้แล้วไม่เปลี่ยนตาม ITEMS
     var left = ex ? ex['คงเหลือ'] : '';
     var total = old + add;
     if (left !== '' && Number(left) > total) left = '';   // แก้ก่อนขายจนน้อยกว่าคงเหลือ → ต้องกรอกหลังขายใหม่
     var sold = left === '' ? '' : total - Number(left);
-    writeRow_(sh, ex && ex._row, [date, it.name, it.price, old, add, total, left, sold,
-      sold === '' ? '' : sold * it.price, t, ex ? ex['กรอกหลังขาย'] : '']);
+    writeRow_(sh, ex && ex._row, [date, it.name, price, old, add, total, left, sold,
+      sold === '' ? '' : sold * price, t, ex ? ex['กรอกหลังขาย'] : '']);
   });
   if (Object.keys(existing).length) refreshMoney_(date);
   return { ok: true };
@@ -275,6 +276,16 @@ function saveAfter_(req) {
     var sold = old + add - left;
     rowsOut.push({ row: ex && ex._row, values: [date, it.name, price, old, add, old + add, left, sold,
       sold * price, ex ? ex['กรอกก่อนขาย'] : '', t] });
+  });
+  // รายการที่ลบ/เปลี่ยนชื่อออกจาก ITEMS หลังกรอกก่อนขายไปแล้ว — ปิดให้ (คงเหลือ = ที่มี, ขาย 0) ไม่งั้นวันนั้นปิดยอดไม่ได้
+  var names = {};
+  ITEMS.forEach(function (it) { names[it.name] = true; });
+  Object.keys(existing).forEach(function (n) {
+    var ex = existing[n];
+    if (names[n] || ex['คงเหลือ'] !== '') return;
+    var tot = Number(ex['ของเดิม']) + Number(ex['เพิ่ม']);
+    rowsOut.push({ row: ex._row, values: [date, n, ex['ราคา'], ex['ของเดิม'], ex['เพิ่ม'], tot, tot, 0, 0,
+      ex['กรอกก่อนขาย'], t] });
   });
   rowsOut.forEach(function (r) { writeRow_(sh, r.row, r.values); });
 

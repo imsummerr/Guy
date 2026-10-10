@@ -137,6 +137,34 @@ t('ใส่รหัสผิด 5 ครั้ง → ล็อก', () => {
   assert.match(g3.post({ action: 'login', pin: '1' }).error, /รอ 10 นาที/);
 });
 
+t('แก้ราคาใน ITEMS แล้วกรอกก่อนขายวันเก่าซ้ำ → ราคาเดิมไม่เปลี่ยน', () => {
+  const g = makeGs({ OWNER_PIN: '1' });
+  const nm = Array.from(g.ITEMS, i => i.name);
+  const z = nm.map(() => 0);
+  const rows = (k, vals) => nm.map((n, i) => ({ item: n, [k]: vals[i] }));
+  g.post({ action: 'saveBefore', date: '2026-10-05', rows: nm.map((n, i) => ({ item: n, old: 0, add: i === 6 ? 30 : 0 })) });
+  g.post({ action: 'saveAfter', date: '2026-10-05', rows: rows('left', nm.map((n, i) => i === 6 ? 10 : 0)), cash: 100, transfer: 0, thai: 0 });
+  g.ITEMS[6].price = 6;
+  const r = g.post({ action: 'saveBefore', date: '2026-10-05', rows: nm.map((n, i) => ({ item: n, old: 0, add: i === 6 ? 30 : 0 })) });
+  assert.strictEqual(r.ok, true);
+  const tart = g.sheets['สต็อก'].data.find(x => x[1] === nm[6]);
+  assert.deepStrictEqual([tart[2], tart[8]], [5, 100]);
+  assert.strictEqual(g.sheets['เงิน'].data[1][8], 0);
+});
+t('ลบรายการออกจาก ITEMS หลังกรอกก่อนขาย → ยังปิดยอดวันนั้นได้', () => {
+  const g = makeGs({ OWNER_PIN: '1' });
+  const nm = Array.from(g.ITEMS, i => i.name);
+  g.post({ action: 'saveBefore', date: '2026-10-05', rows: nm.map(n => ({ item: n, old: 0, add: 2 })) });
+  g.ITEMS = g.ITEMS.slice(0, 6);                       // เอาทาร์ตไข่ออก
+  const r = g.post({ action: 'saveAfter', date: '2026-10-05', rows: nm.slice(0, 6).map(n => ({ item: n, left: 0 })),
+                     cash: 120, transfer: 0, thai: 0 });
+  assert.strictEqual(r.ok, true);
+  assert.ok(g.post({ action: 'day', date: '2026-10-05' }).after, 'หลังขายต้องขึ้นว่ากรอกแล้ว');
+  assert.strictEqual(g.post({ action: 'day', date: '2026-10-06' }).suggestFrom, '2026-10-05');
+  const d = Report.computeAll(g.post({ action: 'report', pin: '1', from: '2026-10-01', to: '2026-10-31' }))[0];
+  assert.strictEqual(d.hasAfter, true); assert.strictEqual(d.diff, 0);
+});
+
 console.log('สรุปยอด (report.js)');
 before('2026-10-07', [2, 0, 0, 0, 0, 0, 2], [10, 10, 0, 0, 0, 0, 0]);   // ไดฟุกุครีมนมหายไป 1
 after('2026-10-07', [0, 0, 0, 0, 0, 0, 0], { cash: 220, transfer: 0, thai: 0 });  // ควรได้ 120+100+10 = 230
